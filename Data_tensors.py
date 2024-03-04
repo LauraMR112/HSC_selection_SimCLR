@@ -58,23 +58,26 @@ def bad_pixels(image, name):
     else:
         pass
     return image
-    
-def load_tensors(path1, path2, npixels = 60, np_norm = 10, substring = None):
+
+def file_names(path1, substring = None):
     names = []
     for file in os.listdir(path1):   
         filename = os.fsdecode(file)
         # Substring for labeled dataset
-        if substring != None and filename.find(substring) != -1:
+        if substring != None and filename.find(substring) != -1 and filename[-5:] == '.fits':
             names.append(filename[:-6]) 
-        elif substring != None and filename.find(substring) == -1:
+        elif substring != None and filename.find(substring) == -1 and filename[-5:] == '.fits':
             print('Substring doesnt exist. Please try a different one!')
         # None substring for unlabeled train set
         elif substring == None and filename.find('QSOs') == -1 and \
-            filename.find('Gals') == -1 and filename.find('Stars') == -1:
+            filename.find('Gals') == -1 and filename.find('Stars') == -1 and filename[-5:] == '.fits':
             names.append(filename[:-6])
         elif filename[-5:] != '.fits':
-            print('Non-fits file:{}'.format(filename))
-            
+            print('Non-fits file:{}'.format(filename)) 
+    unique_names = np.unique(names)
+    return unique_names
+    
+def load_tensors(path1, path2, npixels = 60, np_norm = 10, substring = None):
     unique_names = np.unique(names)
     print('Creating a tensor with {} sources. '.format(len(unique_names)))
     print('Masking bad pixels by changing nan values to zero.')
@@ -84,19 +87,27 @@ def load_tensors(path1, path2, npixels = 60, np_norm = 10, substring = None):
     #all_im_5 = np.zeros((len(unique_names),npixels, npixels, 5))
     all_im_5 = []
     success_files = []
+    fail_files = []
 
     for j in tqdm(range(len(unique_names))):
         bands = ['G', 'R', 'I', 'Z', 'Y']
         im_5 = []
         for b in range(len(bands)):
-            with fits.open(path1 + unique_names[j] + bands[b] + '.fits', memmap=False) as hdul:
-                img_band = hdul[1].data
-                header_img = hdul[1].header
-                img_band_bp = bad_pixels(img_band, unique_names[j] + bands[b] + '.fits')
-                img_band_crop = cropping(img_band_bp, header_img,  unique_names[j])
-                im_5.append(img_band_crop)
-                success_files.append(unique_names[j])
-        all_im_5.append(im_5)
+            try:
+                with fits.open(path1 + unique_names[j] + bands[b] + '.fits', memmap=False) as hdul:
+                    img_band = hdul[1].data
+                    header_img = hdul[1].header
+                    img_band_bp = bad_pixels(img_band, unique_names[j] + bands[b] + '.fits')
+                    img_band_crop = cropping(img_band_bp, header_img,  unique_names[j])
+                    im_5.append(img_band_crop)
+            except:
+                fail_files.append(unique_names[j] + bands[b])
+
+        if len(im_5) == 5:
+            success_files.append(unique_names[j])
+            all_im_5.append(im_5)
+        else:
+            pass
 
     #Change dimension of bands to be the last one
     all_im_5 =  np.moveaxis(np.array(all_im_5), [1], [3])
@@ -104,6 +115,7 @@ def load_tensors(path1, path2, npixels = 60, np_norm = 10, substring = None):
     if substring == None:
         np.save(path2 + 'train_set.npy', norm_all_im_5)
         np.save(path2 + 'ID_ra_dec.npy', success_files)
+        np.save(path2 + 'Errors.npy', fail_files)
     else:
         return norm_all_im_5
 
